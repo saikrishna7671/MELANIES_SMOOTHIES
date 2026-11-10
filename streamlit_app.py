@@ -8,14 +8,14 @@ from snowflake.snowpark.functions import col
 import requests
 
 # ==========================================
-# 2. GET ACTIVE SNOWFLAKE CONNECTION
+# 2. CONNECT TO SNOWFLAKE
 # ==========================================
 
 cnx = st.connection("snowflake")
 session = cnx.session()
 
 # ==========================================
-# 3. APP TITLE AND DESCRIPTION
+# 3. STREAMLIT APP TITLE
 # ==========================================
 
 st.title(":cup_with_straw: Customize Your Smoothie! :cup_with_straw:")
@@ -68,11 +68,45 @@ ingredients_list = st.multiselect(
 
 if ingredients_list:
 
-    ingredients_string = " ".join(ingredients_list)
+    ingredients_string = ""
 
-    st.write("Selected ingredients:", ingredients_string)
+    for fruit_chosen in ingredients_list:
 
-    # Create INSERT statement
+        ingredients_string += fruit_chosen + " "
+
+        # ==================================
+        # 8. CALL SMOOTHIEFR00T API
+        # ==================================
+
+        try:
+
+            smoothiefroot_response = requests.get(
+                "https://my.smoothiefroot.com/api/fruit/watermelon",
+                timeout=15
+            )
+
+            smoothiefroot_response.raise_for_status()
+
+            # Convert JSON response into DataFrame
+            sf_df = st.dataframe(
+                data=smoothiefroot_response.json(),
+                use_container_width=True
+            )
+
+        except requests.exceptions.RequestException as e:
+
+            st.error(
+                f"Unable to fetch nutrition information: {e}"
+            )
+
+        except ValueError:
+
+            st.error("Invalid JSON response from API.")
+
+    # ======================================
+    # 9. CREATE INSERT STATEMENT
+    # ======================================
+
     my_insert_stmt = """
         INSERT INTO smoothies.public.orders
         (ingredients, name_on_order)
@@ -80,7 +114,7 @@ if ingredients_list:
     """
 
     # ======================================
-    # 8. SUBMIT SMOOTHIE ORDER
+    # 10. SUBMIT ORDER BUTTON
     # ======================================
 
     time_to_insert = st.button("Submit Order")
@@ -98,7 +132,7 @@ if ingredients_list:
                 session.sql(
                     my_insert_stmt,
                     params=[
-                        ingredients_string,
+                        ingredients_string.strip(),
                         name_on_order
                     ]
                 ).collect()
@@ -110,55 +144,6 @@ if ingredients_list:
 
             except Exception as e:
 
-                st.error(f"Order submission failed: {e}")
-
-# ==========================================
-# 9. FETCH DATA FROM SMOOTHIEFRUIT API
-# ==========================================
-
-st.subheader("🍉 SmoothieFruit API Nutrition Information")
-
-try:
-
-    smoothiefroot_response = requests.get(
-        "https://my.smoothiefroot.com/api/fruit/watermelon",
-        timeout=15
-    )
-
-    # ======================================
-    # 10. CHECK API RESPONSE STATUS
-    # ======================================
-
-    st.write(
-        "API Status Code:",
-        smoothiefroot_response.status_code
-    )
-
-    smoothiefroot_response.raise_for_status()
-
-    # ======================================
-    # 11. CONVERT API RESPONSE INTO JSON
-    # ======================================
-
-    smoothie_json = smoothiefroot_response.json()
-
-    # ======================================
-    # 12. DISPLAY JSON DATA AS DATAFRAME
-    # ======================================
-
-    sf_df = st.dataframe(
-        data=smoothie_json,
-        use_container_width=True
-    )
-
-except requests.exceptions.RequestException as e:
-
-    st.error(f"API connection failed: {e}")
-
-except ValueError:
-
-    st.error("Unable to convert API response into JSON.")
-
-except Exception as e:
-
-    st.error(f"Something went wrong: {e}")
+                st.error(
+                    f"Unable to submit order: {e}"
+                )
