@@ -1,33 +1,35 @@
 
 # ==========================================
-# 1. IMPORT PYTHON PACKAGES
+# 1. IMPORT LIBRARIES
 # ==========================================
 
 import streamlit as st
-from snowflake.snowpark.functions import col
+import pandas as pd
 import requests
 
+from urllib.parse import quote
+from snowflake.snowpark.functions import col
+
+
 # ==========================================
-# 2. GET ACTIVE SNOWFLAKE CONNECTION
+# 2. SNOWFLAKE CONNECTION
 # ==========================================
 
 cnx = st.connection("snowflake")
 session = cnx.session()
 
+
 # ==========================================
-# 3. APP TITLE
+# 3. APPLICATION TITLE
 # ==========================================
 
 st.title(":cup_with_straw: Customize Your Smoothie! :cup_with_straw:")
 
-st.write(
-    """
-    Choose the fruits you want in your custom Smoothie!
-    """
-)
+st.write("Choose the fruits you want in your custom Smoothie!")
+
 
 # ==========================================
-# 4. ENTER CUSTOMER NAME
+# 4. CUSTOMER NAME
 # ==========================================
 
 name_on_order = st.text_input("Name on Smoothie:")
@@ -37,33 +39,47 @@ st.write(
     name_on_order
 )
 
+
 # ==========================================
 # 5. FETCH FRUIT OPTIONS FROM SNOWFLAKE
 # ==========================================
 
 my_dataframe = session.table(
-    "smoothies.public.fruit_options"
+    "SMOOTHIES.PUBLIC.FRUIT_OPTIONS"
+).select(
+    col("FRUIT_NAME"),
+    col("SEARCH_ON")
 )
 
-fruit_options = [
-    row["FRUIT_NAME"]
-    for row in my_dataframe.select(
-        col("FRUIT_NAME")
-    ).collect()
-]
 
 # ==========================================
-# 6. SELECT INGREDIENTS
+# 6. CONVERT SNOWPARK TO PANDAS
+# ==========================================
+
+pd_df = my_dataframe.to_pandas()
+
+
+# ==========================================
+# 7. DISPLAY DATAFRAME (OPTIONAL DEBUGGING)
+# ==========================================
+
+# st.dataframe(pd_df, use_container_width=True)
+# st.stop()
+
+
+# ==========================================
+# 8. MULTISELECT INGREDIENTS
 # ==========================================
 
 ingredients_list = st.multiselect(
     "Choose up to 5 ingredients:",
-    fruit_options,
+    pd_df["FRUIT_NAME"].tolist(),
     max_selections=5
 )
 
+
 # ==========================================
-# 7. PROCESS SELECTED INGREDIENTS
+# 9. PROCESS SELECTED INGREDIENTS
 # ==========================================
 
 if ingredients_list:
@@ -75,7 +91,34 @@ if ingredients_list:
         ingredients_string += fruit_chosen + " "
 
         # ==================================
-        # 8. DISPLAY FRUIT NUTRITION TITLE
+        # 10. GET API NAME USING PANDAS LOC
+        # ==================================
+
+        matching_fruit = pd_df.loc[
+            pd_df["FRUIT_NAME"] == fruit_chosen,
+            "SEARCH_ON"
+        ]
+
+        if matching_fruit.empty or pd.isna(matching_fruit.iloc[0]):
+
+            st.error(
+                f"No SEARCH_ON value configured for {fruit_chosen}"
+            )
+
+            continue
+
+        search_on = str(matching_fruit.iloc[0]).strip()
+
+        st.write(
+            "The search value for",
+            fruit_chosen,
+            "is",
+            search_on,
+            "."
+        )
+
+        # ==================================
+        # 11. DISPLAY NUTRITION HEADING
         # ==================================
 
         st.subheader(
@@ -83,57 +126,61 @@ if ingredients_list:
         )
 
         # ==================================
-        # 9. DYNAMIC API CALL
+        # 12. DYNAMIC FRUITYVICE API CALL
         # ==================================
+
+        api_url = (
+            "https://www.fruityvice.com/api/fruit/"
+            + quote(search_on, safe="")
+        )
 
         try:
 
-            smoothiefroot_response = requests.get(
-                "https://my.smoothiefroot.com/api/fruit/"
-                + fruit_chosen.lower(),
-                timeout=15
+            fruityvice_response = requests.get(
+                api_url,
+                timeout=20
             )
 
-            # ==================================
-            # 10. CONVERT JSON INTO DATAFRAME
-            # ==================================
+            # Check API response status
+            fruityvice_response.raise_for_status()
 
-            response_data = smoothiefroot_response.json()
+            # Convert API JSON into Pandas DataFrame
+            fruit_data = fruityvice_response.json()
 
-            sf_df = st.dataframe(
-                data=response_data,
+            fruit_df = pd.json_normalize(fruit_data)
+
+            # Display nutrition information
+            st.dataframe(
+                fruit_df,
                 use_container_width=True
+            )
+
+        except requests.exceptions.HTTPError:
+
+            st.warning(
+                f"{search_on} was not found in the API database."
             )
 
         except requests.exceptions.RequestException as e:
 
             st.error(
-                f"API connection failed for {fruit_chosen}: {e}"
+                f"API connection error: {e}"
             )
 
         except ValueError:
 
             st.error(
-                f"Invalid API response for {fruit_chosen}"
+                f"Invalid API response for {search_on}."
             )
 
-    # ======================================
-    # 11. CREATE INSERT STATEMENT
-    # ======================================
-
-    my_insert_stmt = """
-        INSERT INTO smoothies.public.orders
-        (ingredients, name_on_order)
-        VALUES (?, ?)
-    """
 
     # ======================================
-    # 12. SUBMIT ORDER
+    # 13. SUBMIT SMOOTHIE ORDER
     # ======================================
 
-    time_to_insert = st.button("Submit Order")
+    st.divider()
 
-    if time_to_insert:
+    if st.button("Submit Order"):
 
         if not name_on_order.strip():
 
@@ -141,13 +188,19 @@ if ingredients_list:
 
         else:
 
+            my_insert_stmt = """
+                INSERT INTO SMOOTHIES.PUBLIC.ORDERS
+                (INGREDIENTS, NAME_ON_ORDER)
+                VALUES (?, ?)
+            """
+
             try:
 
                 session.sql(
                     my_insert_stmt,
                     params=[
                         ingredients_string.strip(),
-                        name_on_order
+                        name_on_order.strip()
                     ]
                 ).collect()
 
@@ -161,3 +214,7 @@ if ingredients_list:
                 st.error(
                     f"Unable to submit order: {e}"
                 )
+
+else:
+
+    st.info("Please select at least one fruit.")
