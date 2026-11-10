@@ -2,9 +2,15 @@
 # Import Python packages
 import streamlit as st
 from snowflake.snowpark.functions import col
-import requests  
-smoothiefroot_response = requests.get("[https://my.smoothiefroot.com/api/fruit/watermelon](https://my.smoothiefroot.com/api/fruit/watermelon)")  
-st.text(smoothiefroot_response)
+import requests
+
+# Fetch data from SmoothieFruit API
+smoothiefroot_response = requests.get(
+    "https://my.smoothiefroot.com/api/fruit/watermelon"
+)
+
+st.text(smoothiefroot_response.status_code)
+
 # Get active Snowflake connection
 cnx = st.connection("snowflake")
 session = cnx.session()
@@ -42,7 +48,6 @@ ingredients_list = st.multiselect(
 
 if ingredients_list:
 
-    # Convert selected fruits into a string
     ingredients_string = " ".join(ingredients_list)
 
     # Create INSERT statement
@@ -52,7 +57,6 @@ if ingredients_list:
         VALUES (?, ?)
     """
 
-    # Submit Order button
     time_to_insert = st.button('Submit Order')
 
     if time_to_insert:
