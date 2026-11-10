@@ -1,220 +1,284 @@
 
-# ==========================================
-# 1. IMPORT LIBRARIES
-# ==========================================
-
 import streamlit as st
 import pandas as pd
 import requests
 
-from urllib.parse import quote
 from snowflake.snowpark.functions import col
 
 
-# ==========================================
+# --------------------------------------------------
+# 1. PAGE CONFIGURATION
+# --------------------------------------------------
+
+st.set_page_config(
+    page_title="Customize Your Smoothie",
+    page_icon="🥤",
+    layout="wide"
+)
+
+
+# --------------------------------------------------
 # 2. SNOWFLAKE CONNECTION
-# ==========================================
+# --------------------------------------------------
 
-cnx = st.connection("snowflake")
-session = cnx.session()
+@st.cache_resource
+def get_snowflake_session():
+
+    conn = st.connection("snowflake")
+
+    return conn.session()
 
 
-# ==========================================
+try:
+    session = get_snowflake_session()
+
+except Exception as e:
+    st.error("Unable to connect to Snowflake.")
+    st.exception(e)
+    st.stop()
+
+
+# --------------------------------------------------
 # 3. APPLICATION TITLE
-# ==========================================
+# --------------------------------------------------
 
-st.title(":cup_with_straw: Customize Your Smoothie! :cup_with_straw:")
-
-st.write("Choose the fruits you want in your custom Smoothie!")
-
-
-# ==========================================
-# 4. CUSTOMER NAME
-# ==========================================
-
-name_on_order = st.text_input("Name on Smoothie:")
+st.title("🥤 Customize Your Smoothie! 🥤")
 
 st.write(
-    "The name on your Smoothie will be:",
-    name_on_order
+    "Choose the fruits you want in your custom smoothie!"
 )
 
 
-# ==========================================
-# 5. FETCH FRUIT OPTIONS FROM SNOWFLAKE
-# ==========================================
+# --------------------------------------------------
+# 4. GET SMOOTHIE NAME
+# --------------------------------------------------
 
-my_dataframe = session.table(
-    "SMOOTHIES.PUBLIC.FRUIT_OPTIONS"
-).select(
-    col("FRUIT_NAME"),
-    col("SEARCH_ON")
+smoothie_name = st.text_input(
+    "Name on Smoothie:",
+    placeholder="Enter your name"
 )
 
-
-# ==========================================
-# 6. CONVERT SNOWPARK TO PANDAS
-# ==========================================
-
-pd_df = my_dataframe.to_pandas()
+if smoothie_name:
+    st.write(
+        f"The name on your Smoothie will be: {smoothie_name}"
+    )
 
 
-# ==========================================
-# 7. DISPLAY DATAFRAME (OPTIONAL DEBUGGING)
-# ==========================================
+# --------------------------------------------------
+# 5. READ FRUIT OPTIONS FROM SNOWFLAKE
+# --------------------------------------------------
 
-# st.dataframe(pd_df, use_container_width=True)
-# st.stop()
+try:
+
+    my_dataframe = (
+        session.table("SMOOTHIES.PUBLIC.FRUIT_OPTIONS")
+        .select(
+            col("FRUIT_NAME"),
+            col("SEARCH_ON")
+        )
+    )
+
+    # Convert Snowpark DataFrame to Pandas DataFrame
+
+    pd_df = my_dataframe.to_pandas()
+
+except Exception as e:
+
+    st.error("Unable to read FRUIT_OPTIONS table.")
+
+    st.exception(e)
+
+    st.stop()
 
 
-# ==========================================
-# 8. MULTISELECT INGREDIENTS
-# ==========================================
+# --------------------------------------------------
+# 6. DISPLAY FRUIT OPTIONS
+# --------------------------------------------------
+
+if pd_df.empty:
+
+    st.warning("No fruits available in the database.")
+
+    st.stop()
+
+
+# Remove rows without fruit names
+
+pd_df = pd_df.dropna(subset=["FRUIT_NAME"])
+
+fruit_options = pd_df["FRUIT_NAME"].astype(str).tolist()
+
+
+# --------------------------------------------------
+# 7. MULTISELECT WIDGET
+# --------------------------------------------------
 
 ingredients_list = st.multiselect(
+
     "Choose up to 5 ingredients:",
-    pd_df["FRUIT_NAME"].tolist(),
+
+    fruit_options,
+
     max_selections=5
+
 )
 
 
-# ==========================================
-# 9. PROCESS SELECTED INGREDIENTS
-# ==========================================
+# --------------------------------------------------
+# 8. GET NUTRITION INFORMATION USING API
+# --------------------------------------------------
+
+ingredients_string = ""
+
 
 if ingredients_list:
-
-    ingredients_string = ""
 
     for fruit_chosen in ingredients_list:
 
         ingredients_string += fruit_chosen + " "
 
-        # ==================================
-        # 10. GET API NAME USING PANDAS LOC
-        # ==================================
+        # Find corresponding SEARCH_ON value
 
-        matching_fruit = pd_df.loc[
+        matching_rows = pd_df.loc[
             pd_df["FRUIT_NAME"] == fruit_chosen,
             "SEARCH_ON"
         ]
 
-        if matching_fruit.empty or pd.isna(matching_fruit.iloc[0]):
+        # Check whether mapping exists
+
+        if matching_rows.empty or pd.isna(matching_rows.iloc[0]):
 
             st.error(
-                f"No SEARCH_ON value configured for {fruit_chosen}"
+                f"SEARCH_ON value is missing for {fruit_chosen}"
             )
 
             continue
 
-        search_on = str(matching_fruit.iloc[0]).strip()
+        search_on = str(matching_rows.iloc[0]).strip()
 
-        st.write(
-            "The search value for",
-            fruit_chosen,
-            "is",
-            search_on,
-            "."
-        )
+        if not search_on:
 
-        # ==================================
-        # 11. DISPLAY NUTRITION HEADING
-        # ==================================
+            st.error(
+                f"SEARCH_ON value is empty for {fruit_chosen}"
+            )
+
+            continue
+
+        # Display fruit heading
 
         st.subheader(
             fruit_chosen + " Nutrition Information"
         )
 
-        # ==================================
-        # 12. DYNAMIC FRUITYVICE API CALL
-        # ==================================
-
-        api_url = (
-            "https://www.fruityvice.com/api/fruit/"
-            + quote(search_on, safe="")
-        )
+        # API request
 
         try:
 
-            fruityvice_response = requests.get(
-                api_url,
-                timeout=20
+            smoothiefruit_response = requests.get(
+
+                f"https://my.smoothiefroot.com/api/fruit/{search_on}",
+
+                timeout=15
+
             )
 
-            # Check API response status
-            fruityvice_response.raise_for_status()
+            smoothiefruit_response.raise_for_status()
 
-            # Convert API JSON into Pandas DataFrame
-            fruit_data = fruityvice_response.json()
+            response_data = smoothiefruit_response.json()
 
-            fruit_df = pd.json_normalize(fruit_data)
+            # Handle API response
 
-            # Display nutrition information
-            st.dataframe(
-                fruit_df,
-                use_container_width=True
-            )
+            if isinstance(response_data, dict) and "error" in response_data:
 
-        except requests.exceptions.HTTPError:
+                st.warning(response_data["error"])
 
-            st.warning(
-                f"{search_on} was not found in the API database."
+            elif isinstance(response_data, (dict, list)):
+
+                sf_df = pd.DataFrame(response_data)
+
+                st.dataframe(
+                    sf_df,
+                    use_container_width=True
+                )
+
+            else:
+
+                st.warning(
+                    f"No nutrition information found for {fruit_chosen}"
+                )
+
+        except requests.exceptions.Timeout:
+
+            st.error(
+                f"API request timed out for {fruit_chosen}"
             )
 
         except requests.exceptions.RequestException as e:
 
             st.error(
-                f"API connection error: {e}"
+                f"API request failed for {fruit_chosen}: {e}"
             )
 
         except ValueError:
 
             st.error(
-                f"Invalid API response for {search_on}."
+                f"Invalid JSON response for {fruit_chosen}"
             )
 
 
-    # ======================================
-    # 13. SUBMIT SMOOTHIE ORDER
-    # ======================================
+# --------------------------------------------------
+# 9. SUBMIT ORDER
+# --------------------------------------------------
 
-    st.divider()
+st.divider()
 
-    if st.button("Submit Order"):
+if st.button("Submit Order"):
 
-        if not name_on_order.strip():
+    if not smoothie_name.strip():
 
-            st.warning("Please enter your name.")
+        st.warning("Please enter your name.")
 
-        else:
+    elif not ingredients_list:
 
-            my_insert_stmt = """
+        st.warning("Please select at least one fruit.")
+
+    else:
+
+        try:
+
+            # Store ingredients and name in Snowflake
+
+            insert_query = """
                 INSERT INTO SMOOTHIES.PUBLIC.ORDERS
                 (INGREDIENTS, NAME_ON_ORDER)
                 VALUES (?, ?)
             """
 
-            try:
+            session.sql(
+                insert_query,
+                params=[
+                    ingredients_string.strip(),
+                    smoothie_name.strip()
+                ]
+            ).collect()
 
-                session.sql(
-                    my_insert_stmt,
-                    params=[
-                        ingredients_string.strip(),
-                        name_on_order.strip()
-                    ]
-                ).collect()
+            st.success(
+                f"Order successfully submitted for {smoothie_name}!"
+            )
 
-                st.success(
-                    "Your Smoothie is ordered!",
-                    icon="✅"
-                )
+            st.balloons()
 
-            except Exception as e:
+        except Exception as e:
 
-                st.error(
-                    f"Unable to submit order: {e}"
-                )
+            st.error("Unable to submit your order.")
 
-else:
+            st.exception(e)
 
-    st.info("Please select at least one fruit.")
+
+# --------------------------------------------------
+# 10. CLOSE APPLICATION
+# --------------------------------------------------
+
+st.caption(
+    "Powered by Streamlit, Snowflake Snowpark and SmoothieFroot API"
+)
