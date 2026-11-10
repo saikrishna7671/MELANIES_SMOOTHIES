@@ -2,11 +2,13 @@
 # Import python packages
 import streamlit as st
 
-from snowflake.snowpark.context import get_active_session
+import streamlit as st
 from snowflake.snowpark.functions import col
 
+
 # Get active Snowflake session
-session = get_active_session()
+cnx = st.connection("snowflake")
+session = cnx.session()
 
 # App title
 st.title(":cup_with_straw: Customize Your Smoothie! :cup_with_straw:")
