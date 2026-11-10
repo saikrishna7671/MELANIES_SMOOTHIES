@@ -8,14 +8,14 @@ from snowflake.snowpark.functions import col
 import requests
 
 # ==========================================
-# 2. CONNECT TO SNOWFLAKE
+# 2. GET ACTIVE SNOWFLAKE CONNECTION
 # ==========================================
 
 cnx = st.connection("snowflake")
 session = cnx.session()
 
 # ==========================================
-# 3. STREAMLIT APP TITLE
+# 3. APP TITLE
 # ==========================================
 
 st.title(":cup_with_straw: Customize Your Smoothie! :cup_with_straw:")
@@ -53,7 +53,7 @@ fruit_options = [
 ]
 
 # ==========================================
-# 6. SELECT UP TO 5 INGREDIENTS
+# 6. SELECT INGREDIENTS
 # ==========================================
 
 ingredients_list = st.multiselect(
@@ -75,36 +75,50 @@ if ingredients_list:
         ingredients_string += fruit_chosen + " "
 
         # ==================================
-        # 8. CALL SMOOTHIEFR00T API
+        # 8. DISPLAY FRUIT NUTRITION TITLE
+        # ==================================
+
+        st.subheader(
+            fruit_chosen + " Nutrition Information"
+        )
+
+        # ==================================
+        # 9. DYNAMIC API CALL
         # ==================================
 
         try:
 
             smoothiefroot_response = requests.get(
-                "https://my.smoothiefroot.com/api/fruit/watermelon",
+                "https://my.smoothiefroot.com/api/fruit/"
+                + fruit_chosen.lower(),
                 timeout=15
             )
 
-            smoothiefroot_response.raise_for_status()
+            # ==================================
+            # 10. CONVERT JSON INTO DATAFRAME
+            # ==================================
 
-            # Convert JSON response into DataFrame
+            response_data = smoothiefroot_response.json()
+
             sf_df = st.dataframe(
-                data=smoothiefroot_response.json(),
+                data=response_data,
                 use_container_width=True
             )
 
         except requests.exceptions.RequestException as e:
 
             st.error(
-                f"Unable to fetch nutrition information: {e}"
+                f"API connection failed for {fruit_chosen}: {e}"
             )
 
         except ValueError:
 
-            st.error("Invalid JSON response from API.")
+            st.error(
+                f"Invalid API response for {fruit_chosen}"
+            )
 
     # ======================================
-    # 9. CREATE INSERT STATEMENT
+    # 11. CREATE INSERT STATEMENT
     # ======================================
 
     my_insert_stmt = """
@@ -114,7 +128,7 @@ if ingredients_list:
     """
 
     # ======================================
-    # 10. SUBMIT ORDER BUTTON
+    # 12. SUBMIT ORDER
     # ======================================
 
     time_to_insert = st.button("Submit Order")
