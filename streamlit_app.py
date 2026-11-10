@@ -1,13 +1,9 @@
 
-# Import python packages
+# Import Python packages
 import streamlit as st
-
-import streamlit as st
-from snowflake.snowpark.context import get_active_session
 from snowflake.snowpark.functions import col
 
-
-# Get active Snowflake session
+# Get active Snowflake connection
 cnx = st.connection("snowflake")
 session = cnx.session()
 
@@ -25,7 +21,7 @@ name_on_order = st.text_input('Name on Smoothie:')
 
 st.write('The name on your Smoothie will be:', name_on_order)
 
-# Fetch fruit options
+# Fetch fruit options from Snowflake
 my_dataframe = session.table(
     "smoothies.public.fruit_options"
 )
@@ -38,16 +34,14 @@ fruit_options = [
 # Select ingredients
 ingredients_list = st.multiselect(
     'Choose up to 5 ingredients:',
-    my_dataframe,
+    fruit_options,
     max_selections=5
 )
 
 if ingredients_list:
 
-    ingredients_string = ''
-
-    for fruit_chosen in ingredients_list:
-        ingredients_string += fruit_chosen + ' '
+    # Convert selected fruits into a string
+    ingredients_string = " ".join(ingredients_list)
 
     # Create INSERT statement
     my_insert_stmt = """
